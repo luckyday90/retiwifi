@@ -6,7 +6,11 @@ echo "------------------------------------------------"
 echo "Initializing WifiGuard AI Security Audit System"
 echo "------------------------------------------------"
 
-# 1. Check for Node.js
+# 1. Cleaning up old processes
+echo "Cleaning up old bridge instances..."
+killall python3 2>/dev/null || true
+
+# 2. Check for Node.js
 if ! command -v node &> /dev/null; then
     echo "ERROR: Node.js not found. Please install it from https://nodejs.org/"
     exit 1

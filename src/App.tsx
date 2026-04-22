@@ -86,40 +86,54 @@ export default function App() {
     // but the key is to catch the error and inform the user.
     const protocol = isSecure ? "wss:" : "ws:";
     
-    try {
-      const socketUrl = `${protocol}//${hostname}:3001`;
-      console.log(`[SYSTEM] Attempting hardware bridge connection: ${socketUrl}`);
-      socket = new WebSocket(socketUrl);
+    const connect = (host: string) => {
+      try {
+        const protocol = isSecure ? "wss:" : "ws:";
+        const url = `${protocol}//${host}:3001`;
+        console.log(`[SYSTEM] Attempting hardware bridge connection: ${url}`);
+        
+        const ws = new WebSocket(url);
+        
+        ws.onopen = () => {
+          console.log(`[BRIDGE] Connected to ${host}`);
+          setBridgeConnected(true);
+          setLogs(prev => [...prev, `[BRIDGE] Protocol established (${host}). Hardware status: ACTIVE.`]);
+          socket = ws;
+        };
 
-      socket.onopen = () => {
-        setBridgeConnected(true);
-        setLogs(prev => [...prev, "[BRIDGE] Protocol established. Hardware status: ACTIVE."]);
-      };
-
-      socket.onmessage = (event) => {
-        try {
-          const data = JSON.parse(event.data);
-          if (Array.isArray(data)) {
-            setRealNetworks(data);
+        ws.onmessage = (event) => {
+          try {
+            const data = JSON.parse(event.data);
+            if (Array.isArray(data)) {
+              setRealNetworks(data);
+            }
+          } catch (e) {
+            console.error("Invalid bridge data", e);
           }
-        } catch (e) {
-          console.error("Invalid bridge data", e);
-        }
-      };
+        };
 
-      socket.onclose = () => {
-        setBridgeConnected(false);
-        setLogs(prev => [...prev, "[BRIDGE] Connection lost. Reverting to emulation."]);
-      };
-      
-      socket.onerror = () => {
-         setBridgeConnected(false);
-         // Do not log full error to bridge to avoid console spam in browser
-      };
-    } catch (err) {
-      console.error("Failed to initialize WebSocket:", err);
-      setLogs(prev => [...prev, "[SYSTEM] Hardware bridge blocked by browser security (Mixed Content). Use HTTP://localhost for real scans."]);
-    }
+        ws.onclose = () => {
+          if (socket === ws) {
+            setBridgeConnected(false);
+            setLogs(prev => [...prev, "[BRIDGE] Connection lost. Reverting to emulation."]);
+          }
+        };
+
+        ws.onerror = () => {
+          if (!bridgeConnected && host === "localhost") {
+            // Fallback to 127.0.0.1 if localhost fails
+            connect("127.0.0.1");
+          }
+        };
+
+        return ws;
+      } catch (err) {
+        console.error(`Socket init error for ${host}:`, err);
+        return null;
+      }
+    };
+
+    const initialSocket = connect(hostname === "localhost" ? "localhost" : hostname);
 
     return () => socket?.close();
   }, []);
@@ -189,16 +203,27 @@ export default function App() {
         <div className="flex items-center gap-6">
           <div className="flex flex-col items-end">
             <span className="text-[10px] uppercase text-white/40 tracking-widest leading-none">Hardware Bridge</span>
-            <span className={`font-mono text-xs ${bridgeConnected ? 'text-emerald-400' : 'text-amber-200'}`}>
-              {bridgeConnected ? 'CONNECTED' : (
+            <div className="flex items-center gap-2">
+              {!bridgeConnected && (
                 <button 
-                  onClick={() => alert("TROUBLESHOOT:\n1. Assicurati di usare http://localhost:3000\n2. Controlla che il Terminale abbia i permessi di 'Localizzazione'\n3. Verifica che lo script bridge.py sia attivo nel Terminale")}
-                  className="underline decoration-dotted cursor-help"
+                  onClick={() => window.location.reload()}
+                  className="p-1 bg-white/5 hover:bg-white/10 rounded text-amber-500/50 hover:text-amber-500 transition-colors"
+                  title="Force Reconnect"
                 >
-                  EMU_MODE
+                  <RefreshCw className="w-3 h-3" />
                 </button>
               )}
-            </span>
+              <span className={`font-mono text-xs ${bridgeConnected ? 'text-emerald-400' : 'text-amber-200'}`}>
+                {bridgeConnected ? 'CONNECTED' : (
+                  <button 
+                    onClick={() => alert("DIAGNOSI:\n1. Lo script bridge.py è attivo nel terminale?\n2. Sei su http://localhost:3000 (no https)?\n3. Il firewall del Mac blocca la porta 3001?")}
+                    className="underline decoration-dotted cursor-help"
+                  >
+                    EMU_MODE
+                  </button>
+                )}
+              </span>
+            </div>
           </div>
           <div className="h-8 w-px bg-white/10"></div>
           <button 

@@ -1,0 +1,6 @@
+{
+  "name": "WifiGuard AI",
+  "description": "An educational WiFi security auditor and simulator that identifies vulnerabilities and suggests remediation steps.",
+  "requestFramePermissions": [],
+  "majorCapabilities": []
+}

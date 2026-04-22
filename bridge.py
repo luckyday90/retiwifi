@@ -5,40 +5,15 @@ import sys
 import subprocess
 import re
 
-# Protezione contro librerie mancanti
-try:
-    from access_points import get_scanner
-    HAS_SCANNER = True
-except ImportError:
-    HAS_SCANNER = False
+print("--- WifiGuard Hardware Bridge Starting ---")
 
 async def get_networks():
-    """Tenta di scansionare le reti usando vari metodi"""
     networks = []
-    
-    # Metodo 1: Libreria access-points
-    if HAS_SCANNER:
-        try:
-            scanner = get_scanner()
-            aps = scanner.get_access_points()
-            if aps:
-                for ap in aps:
-                    networks.append({
-                        "ssid": ap.ssid if ap.ssid else "Hidden Network",
-                        "bssid": ap.bssid,
-                        "signal": ap.quality,
-                        "security": "WPA2/WPA3",
-                        "channel": "Auto",
-                        "vulnerable": ap.quality < -75
-                    })
-                return networks
-        except Exception as e:
-            print(f"[WARN] Access-points fallito: {e}")
-
-    # Metodo 2: Legacy Airport
+    # Metodo ultra-semplificato via linea di comando
     try:
+        # Percorso universale su Mac
         cmd = "/System/Library/PrivateFrameworks/Apple80211.framework/Versions/Current/Resources/airport -s"
-        result = subprocess.check_output(cmd, shell=True).decode('utf-8')
+        result = subprocess.check_output(cmd, shell=True, stderr=subprocess.STDOUT).decode('utf-8')
         lines = result.split('\n')
         for line in lines[1:]:
             if not line.strip(): continue
@@ -46,60 +21,46 @@ async def get_networks():
             if match:
                 bssid = match.group(1)
                 rssi = int(match.group(2))
-                channel = match.group(3)
                 ssid = line[:match.start()].strip()
                 networks.append({
-                    "ssid": ssid if ssid else "Hidden Network",
+                    "ssid": ssid if ssid else "Hidden",
                     "bssid": bssid,
                     "signal": rssi,
-                    "security": "WPA2/WPA3",
-                    "channel": channel,
+                    "security": "WPA2",
+                    "channel": 0,
                     "vulnerable": rssi < -75
                 })
-        if networks: return networks
-    except:
+    except Exception as e:
+        # Non stampiamo l'errore ogni 4 secondi per non intasare il terminale
         pass
 
-    return []
+    return networks
 
-async def scan_and_send(websocket, path=None):
-    print("\n" + "="*40)
-    print(">>> SUCCESS: WEB BROWSER CONNECTED <<<")
-    print("="*40 + "\n")
-    
+async def handler(websocket):
+    print(">>> Browser connected! Sending real data...")
     while True:
         try:
-            networks = await get_networks()
+            nets = await get_networks()
+            if not nets:
+                # Mock data di cortesia se la scansione hardware fallisce ma la connessione c'è
+                nets = [{"ssid": "ERRORE: Abilita Localizzazione", "bssid": "00:00", "signal": -100, "security": "NONE", "channel": 0, "vulnerable": True}]
             
-            if not networks:
-                # Feedback visivo se il bridge è connesso ma non vede nulla
-                msg = "ERRORE: Abilita Localizzazione nel Terminale" if sys.platform == 'darwin' else "ERRORE: Scansione non riuscita"
-                networks = [{"ssid": msg, "bssid": "FF:FF", "signal": -100, "security": "NONE", "channel": 0, "vulnerable": True}]
-
-            await websocket.send(json.dumps(networks))
+            await websocket.send(json.dumps(nets))
             await asyncio.sleep(4)
         except websockets.exceptions.ConnectionClosed:
-            print("Status: Client Unlinked.")
+            print(">>> Browser disconnected.")
             break
         except Exception as e:
-            print(f"Loop Error: {e}")
-            await asyncio.sleep(2)
+            print(f"Error: {e}")
+            break
 
 async def main():
-    port = 3001
-    print(f"Hardware Bridge init on ws://localhost:{port}")
-    try:
-        async with websockets.serve(scan_and_send, "0.0.0.0", port):
-            await asyncio.Future()
-    except Exception as e:
-        print(f"CRITICAL: Could not start server on port {port}. Is it already in use?")
-        print(f"Details: {e}")
+    print("Bridge listening on ws://0.0.0.0:3001")
+    async with websockets.serve(handler, "0.0.0.0", 3001):
+        await asyncio.Future()
 
 if __name__ == "__main__":
-    if not HAS_SCANNER:
-        print("[!] Warning: 'access-points' library not found. Falling back to system commands.")
-    
     try:
         asyncio.run(main())
-    except KeyboardInterrupt:
-        print("\nBridge offline.")
+    except Exception as e:
+        print(f"FAILED TO START BRIDGE: {e}")

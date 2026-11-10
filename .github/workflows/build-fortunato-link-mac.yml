@@ -1,0 +1,46 @@
+name: Build Fortunato Link Mac M1
+
+on:
+  push:
+    branches:
+      - codex/fortunato-link-mac-v1
+    paths:
+      - "mac/**"
+      - ".github/workflows/build-fortunato-link-mac.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: macos-14
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Compile native ARM64 app
+        shell: bash
+        run: |
+          set -euo pipefail
+          APP="build/Fortunato Link.app"
+          mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
+          xcrun swiftc -O -target arm64-apple-macos11 \
+            mac/FortunatoLink.swift \
+            -framework Cocoa \
+            -o "$APP/Contents/MacOS/FortunatoLink"
+          cp mac/Info.plist "$APP/Contents/Info.plist"
+          chmod 755 "$APP/Contents/MacOS/FortunatoLink"
+          codesign --force --deep --sign - "$APP"
+          test "$(lipo -archs "$APP/Contents/MacOS/FortunatoLink")" = "arm64"
+          codesign --verify --deep --strict "$APP"
+          ditto -c -k --sequesterRsrc --keepParent "$APP" build/Fortunato-Link-Mac-M1.zip
+
+      - name: Upload installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: Fortunato-Link-Mac-M1
+          path: build/Fortunato-Link-Mac-M1.zip
+          if-no-files-found: error
+          retention-days: 30
